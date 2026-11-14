@@ -65,18 +65,21 @@ Format EXACTLY like this:
 🎯 Entry:
 🎯 TP1:
 🎯 TP2:
+🎯 TP3:
+🎯 TP4:
+🎯 TP5:
+🎯 TP6:
 🛑 SL:
 ⏰ Timeframe:
 
 Rules - VERY IMPORTANT:
-- Language MUST be English only.
-- NEVER use Persian, Arabic, or any other language in the signal part.
+- Output MUST be 100% ENGLISH. Translate everything to English.
+- PERSIAN CHARACTERS ARE STRICTLY FORBIDDEN. Never output any Persian / Arabic / Farsi letters.
+- NEVER copy Persian words from source. If source is Persian, TRANSLATE it: فروش = SHORT, خرید = LONG, ورود = Entry, حد سود = TP, حد ضرر = SL, ارز = Pair, جهت = Direction, تایم فریم = Timeframe
 - Count how many Take Profits are in the image/text.
 - Output EXACTLY the same number of TPs as in the source. No more, no less.
-- If there are 3 TPs, output ONLY TP1, TP2, TP3. DO NOT output TP4, TP5, TP6.
-- If there are 4 TPs, output ONLY TP1 to TP4. DO NOT output TP5, TP6.
-- If there are 5 TPs, output ONLY TP1 to TP5. DO NOT output TP6.
-- If there are 6 TPs, output TP1 to TP6.
+- If there are 4 TPs, output ONLY TP1 to TP4. DELETE TP5 and TP6 lines completely.
+- If there are 3 TPs, output ONLY TP1 to TP3. DELETE TP4, TP5, TP6 lines completely.
 - If there are 2 TPs, output ONLY TP1, TP2.
 - If there is 1 TP, output ONLY TP1.
 - NEVER invent TPs. NEVER add empty TP lines. NEVER write TP with N/A.
@@ -84,6 +87,28 @@ Rules - VERY IMPORTANT:
 - Keep numbers exactly as in the source.
 - Do not add extra explanation, only the signal.
 """
+
+# --- فیلتر ضد فارسی: هر حرف فارسی رو از سیگنال پاک میکنه ---
+def strip_persian(text):
+    if not text:
+        return text
+    text = re.sub(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+', '', text)
+    lines = []
+    for line in text.split('\n'):
+        line = line.strip()
+        # اگه خط فقط ایموجی مونده و عدد و کلمه انگلیسی نداره، ردش کن
+        if line and not re.search(r'[A-Za-z0-9]', line):
+            if 'NEW SIGNAL' in line or '📊' in line:
+                lines.append(line)
+            continue
+        lines.append(line)
+    # حذف خط خالی پشت سر هم
+    cleaned = []
+    for l in lines:
+        if l == "" and cleaned and cleaned[-1] == "":
+            continue
+        cleaned.append(l)
+    return '\n'.join(cleaned).strip()
 
 # ========== True Trade Price Checker ==========
 
@@ -192,7 +217,12 @@ async def start(update, context):
 
 async def send_preview(update, signal_text):
     user_id = update.message.chat.id
-    full_text = signal_text + FOOTER
+    # اول فارسی رو از سیگنال پاک کن، بعد FOOTER رو اضافه کن
+    signal_text = strip_persian(signal_text)
+    if "WARNING" not in signal_text:
+        full_text = signal_text + FOOTER
+    else:
+        full_text = signal_text
     pending_signal[user_id] = full_text
     keyboard = [
         [InlineKeyboardButton("✅ Send to Group", callback_data="send")],
@@ -233,7 +263,8 @@ async def handle_text(update, context):
             model="gemini-3.5-flash-lite",
             contents=[PROMPT + "\n\nSignal text:\n" + text]
         )
-        await send_preview(update, response.text)
+        clean = strip_persian(response.text)
+        await send_preview(update, clean)
     except Exception as e:
         await update.message.reply_text(f"Error: {e}")
 
@@ -248,7 +279,8 @@ async def handle_photo(update, context):
             model="gemini-3.5-flash-lite",
             contents=[PROMPT, genai.types.Part.from_bytes(data=bytes(photo_bytes), mime_type="image/jpeg")]
         )
-        await send_preview(update, response.text)
+        clean = strip_persian(response.text)
+        await send_preview(update, clean)
     except Exception as e:
         await update.message.reply_text(f"Error: {e}")
 
@@ -286,8 +318,12 @@ async def edit_last_group_message(update, context, new_text):
     if not last_group_msg_id:
         await update.message.reply_text("No message sent to group yet to edit.")
         return
+    # موقع ادیت: قسمت سیگنال رو تمیز کن، FOOTER رو همیشه اضافه کن
+    signal_part = new_text.split("---")[0] if "---" in new_text else new_text
+    signal_part = strip_persian(signal_part)
+    final_text = signal_part + FOOTER
     try:
-        await context.bot.edit_message_text(chat_id=GROUP_ID, message_id=last_group_msg_id, text=new_text)
+        await context.bot.edit_message_text(chat_id=GROUP_ID, message_id=last_group_msg_id, text=final_text)
         await update.message.reply_text("Group message edited ✅")
     except Exception as e:
         await update.message.reply_text(f"Error editing: {e}")
