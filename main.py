@@ -45,13 +45,13 @@ active_signals = {}
 FOOTER = """
 
 ---
-⚠️ Risk Warning / هشدار ریسک / Предупреждение о риске
+⚠️ WARNING / هشدار / ПРЕДУПРЕЖДЕНИЕ
 
-🇮🇷 حداکثر ضرر شما در تمام معاملات شما باید 3% از تمام دارایی شما باشد. لطفا در انتخاب اهرم دقت فرمایید
+🇮🇷 حد ضرر تمام معاملات باز شما نباید بیشتر از 3% از دارایی شما را از بین ببرد. لطفا در انتخاب اهرم دقت فرمایید
 
-🇬🇧 Your maximum loss across all your trades should be 3% of your total capital. Please be careful when choosing leverage.
+🇬🇧 The stop-loss of all your open trades should not wipe out more than 3% of your capital. Please be careful when choosing leverage.
 
-🇷🇺 Ваш максимальный убыток по всем вашим сделкам должен составлять 3% от вашего общего капитала. Пожалуйста, будьте осторожны при выборе кредитного плеча.
+🇷🇺 Стоп-лосс всех ваших открытых сделок не должен уничтожить более 3% вашего капитала. Пожалуйста, будьте осторожны при выборе кредитного плеча.
 """
 
 PROMPT = """You are a trading signal assistant. Convert this input to a clean signal in ENGLISH ONLY.
@@ -63,13 +63,14 @@ Format EXACTLY like this:
 💰 Pair:
 📈 Direction: LONG / SHORT
 🎯 Entry:
-✅ TP1:
-✅ TP2:
+🎯 TP1:
+🎯 TP2:
 🛑 SL:
 ⏰ Timeframe:
 
 Rules - VERY IMPORTANT:
 - Language MUST be English only.
+- NEVER use Persian, Arabic, or any other language in the signal part.
 - Count how many Take Profits are in the image/text.
 - Output EXACTLY the same number of TPs as in the source. No more, no less.
 - If there are 3 TPs, output ONLY TP1, TP2, TP3. DO NOT output TP4, TP5, TP6.
@@ -308,6 +309,3 @@ def main():
 if __name__ == '__main__':
     threading.Thread(target=run_flask, daemon=True).start()
     main()
-
-  
-
