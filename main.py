@@ -47,48 +47,37 @@ FOOTER = """
 ---
 ⚠️ WARNING / هشدار / ПРЕДУПРЕЖДЕНИЕ
 
-🇮🇷 حد ضرر تمام معاملات باز شما نباید بیشتر از 3% از دارایی شما را از بین ببرد. لطفا در انتخاب اهرم دقت فرمایید
+🇮🇷 حد ضرر تمام معاملات باز شما نباید بیشتر از 3% باشد لطفا در انتخاب اهرم دقت فرمایید
 
-🇬🇧 The stop-loss of all your open trades should not wipe out more than 3% of your capital. Please be careful when choosing leverage.
+🇬🇧 The stop-loss of all your open trades should not be more than 3%. Please be careful when choosing leverage.
 
-🇷🇺 Стоп-лосс всех ваших открытых сделок не должен уничтожить более 3% вашего капитала. Пожалуйста, будьте осторожны при выборе кредитного плеча.
+🇷🇺 Стоп-лосс всех ваших открытых сделок не должен быть больше 3%. Пожалуйста, будьте осторожны при выборе кредитного плеча.
 """
 
 PROMPT = """You are a trading signal assistant. Convert this input to a clean signal in ENGLISH ONLY.
 
-Format EXACTLY like this:
+Format EXACTLY like this - no emojis, no extra lines:
 
-📊 NEW SIGNAL
+DOGE LONG
 
-💰 Pair:
-📈 Direction: LONG / SHORT
-🎯 Entry:
-🎯 TP1:
-🎯 TP2:
-🎯 TP3:
-🎯 TP4:
-🎯 TP5:
-🎯 TP6:
-🛑 SL:
-⏰ Timeframe:
+Entry : 0.18
+TP1 = 0.182
+TP2 = 0.183
+TP3 = 0.184
+SL = 0.17
 
-Rules - VERY IMPORTANT:
-- Output MUST be 100% ENGLISH. Translate everything to English.
-- PERSIAN CHARACTERS ARE STRICTLY FORBIDDEN. Never output any Persian / Arabic / Farsi letters.
-- NEVER copy Persian words from source. If source is Persian, TRANSLATE it: فروش = SHORT, خرید = LONG, ورود = Entry, حد سود = TP, حد ضرر = SL, ارز = Pair, جهت = Direction, تایم فریم = Timeframe
-- Count how many Take Profits are in the image/text.
-- Output EXACTLY the same number of TPs as in the source. No more, no less.
-- If there are 4 TPs, output ONLY TP1 to TP4. DELETE TP5 and TP6 lines completely.
-- If there are 3 TPs, output ONLY TP1 to TP3. DELETE TP4, TP5, TP6 lines completely.
-- If there are 2 TPs, output ONLY TP1, TP2.
-- If there is 1 TP, output ONLY TP1.
-- NEVER invent TPs. NEVER add empty TP lines. NEVER write TP with N/A.
-- Only show TP lines that actually exist in the source.
+Rules:
+- First line: PAIR + SPACE + LONG or SHORT. Example: DOGE LONG, BTC SHORT
+- Second line empty, third line: Entry : NUMBER or Entry : By Market
+- Then TP1 = ..., TP2 = ... - EXACTLY same number of TPs as source. Never invent TPs.
+- Then SL = ...
+- If source says By Market / market / لحظه ای, write Entry : By Market
+- Output MUST be 100% ENGLISH. Translate: فروش = SHORT, خرید / لانگ / لنگ = LONG, ورود = Entry, حد سود = TP, حد ضرر = SL
 - Keep numbers exactly as in the source.
-- Do not add extra explanation, only the signal.
+- Do not add emojis or Timeframe.
 """
 
-# --- فیلتر ضد فارسی: هر حرف فارسی رو از سیگنال پاک میکنه ---
+# --- فیلتر ضد فارسی ---
 def strip_persian(text):
     if not text:
         return text
@@ -96,9 +85,8 @@ def strip_persian(text):
     lines = []
     for line in text.split('\n'):
         line = line.strip()
-        if line and not re.search(r'[A-Za-z0-9]', line):
-            if 'NEW SIGNAL' in line or '📊' in line:
-                lines.append(line)
+        if line == "":
+            lines.append(line)
             continue
         lines.append(line)
     cleaned = []
@@ -108,49 +96,71 @@ def strip_persian(text):
         cleaned.append(l)
     return '\n'.join(cleaned).strip()
 
-# --- NEW: تبدیل سریع سیگنال فارسی به انگلیسی، بدون جمینای، فوری ---
+# --- تبدیل اعداد فارسی به انگلیسی ---
+def to_en_num(s):
+    fa = "۰۱۲۳۴۵۶۷۸۹"
+    ar = "٠١٢٣٤٥٦٧٨٩"
+    for i, ch in enumerate(fa):
+        s = s.replace(ch, str(i))
+    for i, ch in enumerate(ar):
+        s = s.replace(ch, str(i))
+    s = s.replace("٫", ".").replace("٬", "").replace("،", "")
+    return s
+
+# --- تبدیل سریع سیگنال فارسی به انگلیسی، بدون جمینای ---
 def parse_farsi_signal(text):
     try:
-        m_pair = re.search(r'(?:ارز|Pair)\s*:\s*([A-Z0-9/]+)', text, re.I)
-        if not m_pair:
-            return None
-        pair = m_pair.group(1).strip().upper()
+        text = to_en_num(text)
+        # پیدا کردن ارز - حتی بدون کلمه ارز
+        m_pair = re.search(r'(?:ارز|Pair|جفت ارز)\s*:\s*([A-Z0-9/]+)', text, re.I)
+        if m_pair:
+            pair = m_pair.group(1).strip().upper().replace("/USDT", "").replace("/USD", "")
+        else:
+            m2 = re.search(r'\b(BTC|ETH|SOL|XRP|DOGE|ADA|AVAX|LINK|TON|NOT|XAU|GOLD|BNB|TRX|DOT)\b', text, re.I)
+            if not m2:
+                return None
+            pair = m2.group(1).upper()
 
+        # جهت - Lang = Long
         direction = "LONG"
-        if re.search(r'(SHORT|شورت|فروش)', text, re.I):
+        if re.search(r'(SHORT|شورت|فروش|سل|SELL)', text, re.I):
             direction = "SHORT"
-        elif re.search(r'(LONG|لانگ|خرید)', text, re.I):
+        elif re.search(r'(LONG|LANG|لانگ|لنگ|خرید|BUY)', text, re.I):
             direction = "LONG"
 
-        m_entry = re.search(r'(?:ورود|Entry)\s*:\s*([0-9.,]+)', text)
-        entry = m_entry.group(1) if m_entry else None
+        # ورود - عدد یا By Market
+        entry = None
+        if re.search(r'(By Market|MARKET|مارکت|لحظه|بازار|فعلی)', text, re.I):
+            entry = "By Market"
+        else:
+            m_entry = re.search(r'(?:ورود|Entry|خرید)\s*[:\-–=]?\s*([0-9]+\.[0-9]+|[0-9]+)', text)
+            if m_entry:
+                entry = m_entry.group(1)
 
+        # تارگت ها - همه فرمت ها
         tps = []
-        for m in re.finditer(r'حد\s*سود\s*\d*\s*:\s*([0-9.,]+)', text):
-            tps.append(m.group(1))
-        if not tps:
-            for m in re.finditer(r'TP\s*\d*\s*:\s*([0-9.,]+)', text, re.I):
-                tps.append(m.group(1))
+        for m in re.finditer(r'(?:حد\s*سود|تارگت|هدف|TP|Take Profit)\s*(?:اول|دوم|سوم|چهارم|پنجم|ششم|\d+)?\s*[:\-–=]?\s*([0-9]+\.[0-9]+|[0-9]+)', text, re.I):
+            v = m.group(1)
+            if v not in tps and v != entry:
+                tps.append(v)
+        # اگه همه TP ها توی یه خط با / بودن
+        if len(tps) <= 1:
+            m_line = re.search(r'(?:حد\s*سود|تارگت).*?[:\-–=]\s*([0-9.,\s/]+)', text, re.I)
+            if m_line and "/" in m_line.group(1):
+                tps = [x.strip() for x in m_line.group(1).split("/") if x.strip()]
 
-        m_sl = re.search(r'(?:حد\s*ضرر|SL)\s*:\s*([0-9.,]+)', text)
+        m_sl = re.search(r'(?:حد\s*ضرر|استاپ|SL|Stop Loss)\s*[:\-–=]?\s*([0-9]+\.[0-9]+|[0-9]+)', text)
         sl = m_sl.group(1) if m_sl else None
-
-        m_tf = re.search(r'(?:تایم\s*فریم|Timeframe)\s*:\s*([0-9a-zA-Z ]+)', text)
-        tf = m_tf.group(1).strip() if m_tf else "15m"
-        if "دقیقه" in text:
-            m_min = re.search(r'(\d+)\s*دقیقه', text)
-            if m_min:
-                tf = m_min.group(1) + "m"
 
         if not entry or not tps:
             return None
 
-        lines = ["📊 NEW SIGNAL", "", f"💰 Pair: {pair}", f"📈 Direction: {direction}", f"🎯 Entry: {entry}"]
+        # خروجی دقیقا به فرمتی که خواستی
+        lines = [f"{pair} {direction}", "", f"Entry : {entry}"]
         for i, tp in enumerate(tps, 1):
-            lines.append(f"🎯 TP{i}: {tp}")
+            lines.append(f"TP{i} = {tp}")
         if sl:
-            lines.append(f"🛑 SL: {sl}")
-        lines.append(f"⏰ Timeframe: {tf}")
+            lines.append(f"SL = {sl}")
         return "\n".join(lines)
     except Exception as e:
         print("farsi parse error:", e)
@@ -160,28 +170,48 @@ def parse_farsi_signal(text):
 
 def parse_signal(text):
     try:
-        m_pair = re.search(r"Pair:\s*([A-Z0-9/]+)", text)
+        # فرمت جدید: DOGE LONG
+        m_pair = re.search(r'^([A-Z0-9]+)\s+(LONG|SHORT)', text, re.M | re.I)
         if not m_pair:
-            return None
-        pair = m_pair.group(1).replace("/", "").strip()
+            m_pair2 = re.search(r"Pair:\s*([A-Z0-9/]+)", text)
+            if not m_pair2:
+                return None
+            pair = m_pair2.group(1).replace("/", "").strip()
+            m_dir = re.search(r"Direction:\s*(LONG|SHORT)", text, re.I)
+            direction = m_dir.group(1).upper() if m_dir else "LONG"
+        else:
+            pair = m_pair.group(1).upper()
+            direction = m_pair.group(2).upper()
+
         if pair in ["BTC", "ETH", "SOL", "XRP", "DOGE", "XAU", "GOLD"]:
             pair = pair + "USDT" if pair != "XAU" and pair != "GOLD" else "XAUUSD"
-        m_dir = re.search(r"Direction:\s*(LONG|SHORT)", text, re.I)
-        direction = m_dir.group(1).upper() if m_dir else "LONG"
-        def get_num(label):
-            m = re.search(label + r":\s*([0-9.,]+)", text)
-            return float(m.group(1).replace(",", "")) if m else None
+
+        def get_num(pattern):
+            m = re.search(pattern, text, re.I)
+            if not m:
+                return None
+            v = m.group(1).replace(",", "").strip()
+            if v.lower() == "by market":
+                return None
+            try:
+                return float(v)
+            except:
+                return None
+
+        entry = get_num(r"Entry\s*:\s*([0-9.,]+|By Market)")
+        sl = get_num(r"SL\s*[:=]\s*([0-9.,]+)")
+
         tps = []
-        for i in range(1, 7):
-            v = get_num(f"TP{i}")
-            if v:
-                tps.append(v)
+        for m in re.finditer(r"TP(\d+)\s*[:=]\s*([0-9.,]+)", text, re.I):
+            tps.append(float(m.group(2).replace(",", "")))
+        tps = sorted(tps) if direction == "LONG" else sorted(tps, reverse=True)
+
         return {
             "pair": pair,
             "direction": direction,
-            "entry": get_num("Entry"),
+            "entry": entry,
             "tps": tps,
-            "sl": get_num("SL"),
+            "sl": sl,
             "hit": set()
         }
     except Exception as e:
@@ -311,7 +341,7 @@ async def handle_text(update, context):
     await update.message.reply_text("Analyzing... ⏳")
     try:
         response = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
+            model="gemini-2.0-flash",
             contents=[PROMPT + "\n\nSignal text:\n" + text]
         )
         clean = strip_persian(response.text)
@@ -327,7 +357,7 @@ async def handle_photo(update, context):
         photo = await update.message.photo[-1].get_file()
         photo_bytes = await photo.download_as_bytearray()
         response = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
+            model="gemini-2.0-flash",
             contents=[PROMPT, genai.types.Part.from_bytes(data=bytes(photo_bytes), mime_type="image/jpeg")]
         )
         clean = strip_persian(response.text)
