@@ -96,19 +96,65 @@ def strip_persian(text):
     lines = []
     for line in text.split('\n'):
         line = line.strip()
-        # اگه خط فقط ایموجی مونده و عدد و کلمه انگلیسی نداره، ردش کن
         if line and not re.search(r'[A-Za-z0-9]', line):
             if 'NEW SIGNAL' in line or '📊' in line:
                 lines.append(line)
             continue
         lines.append(line)
-    # حذف خط خالی پشت سر هم
     cleaned = []
     for l in lines:
         if l == "" and cleaned and cleaned[-1] == "":
             continue
         cleaned.append(l)
     return '\n'.join(cleaned).strip()
+
+# --- NEW: تبدیل سریع سیگنال فارسی به انگلیسی، بدون جمینای، فوری ---
+def parse_farsi_signal(text):
+    try:
+        m_pair = re.search(r'(?:ارز|Pair)\s*:\s*([A-Z0-9/]+)', text, re.I)
+        if not m_pair:
+            return None
+        pair = m_pair.group(1).strip().upper()
+
+        direction = "LONG"
+        if re.search(r'(SHORT|شورت|فروش)', text, re.I):
+            direction = "SHORT"
+        elif re.search(r'(LONG|لانگ|خرید)', text, re.I):
+            direction = "LONG"
+
+        m_entry = re.search(r'(?:ورود|Entry)\s*:\s*([0-9.,]+)', text)
+        entry = m_entry.group(1) if m_entry else None
+
+        tps = []
+        for m in re.finditer(r'حد\s*سود\s*\d*\s*:\s*([0-9.,]+)', text):
+            tps.append(m.group(1))
+        if not tps:
+            for m in re.finditer(r'TP\s*\d*\s*:\s*([0-9.,]+)', text, re.I):
+                tps.append(m.group(1))
+
+        m_sl = re.search(r'(?:حد\s*ضرر|SL)\s*:\s*([0-9.,]+)', text)
+        sl = m_sl.group(1) if m_sl else None
+
+        m_tf = re.search(r'(?:تایم\s*فریم|Timeframe)\s*:\s*([0-9a-zA-Z ]+)', text)
+        tf = m_tf.group(1).strip() if m_tf else "15m"
+        if "دقیقه" in text:
+            m_min = re.search(r'(\d+)\s*دقیقه', text)
+            if m_min:
+                tf = m_min.group(1) + "m"
+
+        if not entry or not tps:
+            return None
+
+        lines = ["📊 NEW SIGNAL", "", f"💰 Pair: {pair}", f"📈 Direction: {direction}", f"🎯 Entry: {entry}"]
+        for i, tp in enumerate(tps, 1):
+            lines.append(f"🎯 TP{i}: {tp}")
+        if sl:
+            lines.append(f"🛑 SL: {sl}")
+        lines.append(f"⏰ Timeframe: {tf}")
+        return "\n".join(lines)
+    except Exception as e:
+        print("farsi parse error:", e)
+        return None
 
 # ========== True Trade Price Checker ==========
 
@@ -118,7 +164,6 @@ def parse_signal(text):
         if not m_pair:
             return None
         pair = m_pair.group(1).replace("/", "").strip()
-        # اگه USDT نداشت اضافه کن - مثلا BTC -> BTCUSDT
         if pair in ["BTC", "ETH", "SOL", "XRP", "DOGE", "XAU", "GOLD"]:
             pair = pair + "USDT" if pair != "XAU" and pair != "GOLD" else "XAUUSD"
         m_dir = re.search(r"Direction:\s*(LONG|SHORT)", text, re.I)
@@ -217,7 +262,6 @@ async def start(update, context):
 
 async def send_preview(update, signal_text):
     user_id = update.message.chat.id
-    # اول فارسی رو از سیگنال پاک کن، بعد FOOTER رو اضافه کن
     signal_text = strip_persian(signal_text)
     if "WARNING" not in signal_text:
         full_text = signal_text + FOOTER
@@ -257,6 +301,13 @@ async def handle_text(update, context):
             await update.message.reply_text("Send the corrected text to edit the last group message:")
         return
 
+    # --- اول سعی کن بدون جمینای، فوری تبدیل کن ---
+    fast = parse_farsi_signal(text)
+    if fast:
+        await send_preview(update, fast)
+        return
+
+    # اگه متن عجیب بود، برو سراغ جمینای
     await update.message.reply_text("Analyzing... ⏳")
     try:
         response = client.models.generate_content(
@@ -297,7 +348,6 @@ async def button_handler(update, context):
             return
         sent = await context.bot.send_message(chat_id=GROUP_ID, text=signal)
         last_group_msg_id = sent.message_id
-        # --- فعال کردن چک قیمت برای این سیگنال ---
         parsed = parse_signal(signal)
         if parsed:
             active_signals[sent.message_id] = parsed
@@ -318,7 +368,6 @@ async def edit_last_group_message(update, context, new_text):
     if not last_group_msg_id:
         await update.message.reply_text("No message sent to group yet to edit.")
         return
-    # موقع ادیت: قسمت سیگنال رو تمیز کن، FOOTER رو همیشه اضافه کن
     signal_part = new_text.split("---")[0] if "---" in new_text else new_text
     signal_part = strip_persian(signal_part)
     final_text = signal_part + FOOTER
@@ -336,7 +385,6 @@ def main():
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     print("Bot started...")
-    # شروع چک کردن قیمت
     async def post_init(app):
         asyncio.create_task(check_signals_loop(app))
     telegram_app.post_init = post_init
